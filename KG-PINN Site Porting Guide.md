@@ -119,7 +119,7 @@ coefficients:
   n_zones:      4        # number of cold aisle zones for averaging
   
   # Zone-3 (Return)
-  delta_t:      60.0     # sampling interval (s)
+  delta_t:      1.0     # sampling interval (s)
   T_return_set: 35.0     # return temperature setpoint (°C)
 ```
 
