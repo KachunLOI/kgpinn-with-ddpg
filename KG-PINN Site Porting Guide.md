@@ -104,14 +104,6 @@ kg.save("kg_site_GPU_HALL_2.json")
 
 **What changes:** Which rule-set is active and its coefficients (e.g., heat transfer `hA`, leakage factor `eta`, specific heat `c_p`).
 
-### Thermal Zone Formulas
-
-| Zone | Formula | Description |
-|------|---------|-------------|
-| Zone-1 (Cold Aisle) | `T_cold = T_ambient + hA*(T_AC - T_ambient)/(m_air*c_p) + eta*Q_IT/(m_air*c_p)` | Supply air mixing with ambient |
-| Zone-2 (Hot Aisle) | `T_hot = (1/n) * sum(T_cold,i + Q_IT,i/(m_air*c_p))` | Heat accumulation from IT equipment |
-| Zone-3 (Return) | `T_return(t+dt) = T_hot_avg(t) + dt * hA*(T_hot_avg - T_ambient)/(m_air*c_p)` | Return air with setpoint constraint |
-
 ### Example: `kg_rules.yaml`
 
 ```yaml
