@@ -1,3 +1,16 @@
+# KG-PINN Site Porting Guide
+
+This guide describes how to port the KG-PINN model to a new data center site.
+
+---
+
+## (1) Normalization Config
+
+**What changes:** The min/max (or mean/std) ranges used for feature-wise scaling of temperature/flow/load variables.
+
+### Example: `normalization.yaml`
+
+```yaml
 temperature:
   output_room_T_TH:      {min: 12.0, max: 45.0}   # Room temperature (26 sensors)
   output_room_T_cr:      {min: 12.0, max: 28.0}   # CRAH supply temperature (8 sensors)
@@ -8,16 +21,27 @@ airflow:
 
 load:
   IT_Load:               {min: 0.0,  max: 3.6e4}  # IT load (144 sensors)
-1.2 Normalization Hook (Illustrative)
+```
+
+### Code Hook
+
+```python
 norm = load_yaml("normalization.yaml")
 
 def normalize(x, key):
     r = norm[key["group"]][key["name"]]
     return (x - r["min"]) / (r["max"] - r["min"] + 1e-8)
+```
 
-2. Layout and Zoning Instantiation
-Objective. Represent the site topology (zones, aisles, racks, CRAH placement, and sensor-to-entity mappings) using configuration files and instantiate these entities and relations in the KG (i.e., site-specific KG schema instantiation).
-2.1 Example: layout_map.json
+---
+
+## (2) Layout & Zoning
+
+**What changes:** Entity instances and mappings that reflect aisle topology, row count, CRAH placement, and rack membership per zone.
+
+### Example: `layout_map.json`
+
+```json
 {
   "site_id": "GPU_HALL_2",
   "zones": {
@@ -60,7 +84,11 @@ Objective. Represent the site topology (zones, aisles, racks, CRAH placement, an
     }
   }
 }
-2.2 KG Update Hook (Illustrative)
+```
+
+### Code Hook
+
+```python
 kg = KG.load("kg_base_schema.json")
 layout = json.load(open("layout_map.json"))
 
@@ -68,10 +96,25 @@ kg.upsert_entities_from_layout(layout)
 kg.upsert_zone_membership(layout["zones"])
 kg.upsert_crah_links(layout["crah_units"])
 kg.save("kg_site_GPU_HALL_2.json")
+```
 
-3. Airflow Configuration and Rule-Coefficient Re-calibration
-Objective. Select the site-appropriate airflow rule pack (e.g., single-sided vs. double-sided) and initialize and re-calibrate key physical/empirical coefficients.
-3.1 Example: kg_rules.yaml
+---
+
+## (3) Airflow Configuration & Rule Coefficients
+
+**What changes:** Which rule-set is active and its coefficients (e.g., heat transfer `hA`, leakage factor `eta`, specific heat `c_p`).
+
+### Thermal Zone Formulas
+
+| Zone | Formula | Description |
+|------|---------|-------------|
+| Zone-1 (Cold Aisle) | `T_cold = T_ambient + hA*(T_AC - T_ambient)/(m_air*c_p) + eta*Q_IT/(m_air*c_p)` | Supply air mixing with ambient |
+| Zone-2 (Hot Aisle) | `T_hot = (1/n) * sum(T_cold,i + Q_IT,i/(m_air*c_p))` | Heat accumulation from IT equipment |
+| Zone-3 (Return) | `T_return(t+dt) = T_hot_avg(t) + dt * hA*(T_hot_avg - T_ambient)/(m_air*c_p)` | Return air with setpoint constraint |
+
+### Example: `kg_rules.yaml`
+
+```yaml
 airflow_mode: "single_sided"   # or "double_sided"
 
 coefficients:
@@ -86,7 +129,11 @@ coefficients:
   # Zone-3 (Return)
   delta_t:      60.0     # sampling interval (s)
   T_return_set: 35.0     # return temperature setpoint (°C)
-3.2 Rulepack Activation and Coefficient Injection (Illustrative)
+```
+
+### Code Hook
+
+```python
 rules = load_yaml("kg_rules.yaml")
 
 if rules["airflow_mode"] == "single_sided":
@@ -96,9 +143,14 @@ else:
 
 kg.set_rule_coefficients(rules["coefficients"])
 kg.save("kg_site_calibrated.json")
-3.3 Lightweight Coefficient Calibration
-Input: 24–72 hours of site data.
-Output: Best-fit coefficients that minimize errors on intermediate targets (e.g., zone temperatures inferred by the KG relative to sensor-derived proxies.
+```
+
+### Calibration Routine (Lightweight)
+
+- **Input:** 24–72h site data
+- **Output:** Best-fit coefficients to minimize intermediate target errors (e.g., predicted zone temperatures)
+
+```python
 def calibrate_coeffs(data, init_coeffs):
     # minimize error between KG-inferred intermediates and measurements/CFD references
     # e.g., optimize [hA, eta, c_p, n_zones, delta_t, T_return_set] with bounded search
@@ -106,13 +158,17 @@ def calibrate_coeffs(data, init_coeffs):
 
 coeffs = calibrate_coeffs(site_data, init_coeffs=rules["coefficients"])
 kg.set_rule_coefficients(coeffs)
+```
 
-4. Rule Validation (Intermediate-Feature Quality Control)
-Objective. Verify that KG-derived intermediate features are reliable before feeding them into the surrogate model, thereby preventing “garbage-in” physics features.
-4.1 Validation Targets
-● KG-derived intermediates used by the surrogate: 
-● Sanity and monotonicity properties (e.g., increasing IT_load should increase T_hot, all else equal)
-4.2 Example: validate_kg.py
+---
+
+## (4) Rule Validation
+
+**What to validate:** KG-derived intermediate features used by the surrogate (e.g., zone temperatures `T_cold`, `T_hot`, `T_return`). This step prevents "garbage-in" features.
+
+### Example: `validate_kg.py`
+
+```python
 pred = kg.infer_intermediates(site_data)     # e.g., T_cold, T_hot, T_return
 ref  = load_reference(site_data)             # sensors or small CFD subset
 
@@ -123,23 +179,37 @@ report = {
 }
 assert report["MAE_T_cold"] < thresholds["T_cold"]
 save_json("kg_validation_report.json", report)
-4.3 Acceptance Criteria
-Porting is considered acceptable if:
-● intermediate-feature MAE falls within predefined tolerances; and
-● sanity/monotonicity checks pass consistently; and
-● (optional) sampled alignment against a limited CFD subset or critical measurement points is satisfactory.
+```
 
-5. Minimal Porting Pipeline (Recommended)
-Step 1 — Prepare configuration files
-● Update normalization.yaml
-● Update layout_map.json
-Step 2 — Configure airflow mode
-● Select airflow_mode
-● Provide initial coefficients in kg_rules.yaml
-Step 3 — Build, calibrate, and validate the KG
+### Acceptance Gates
+
+- Intermediate-feature MAE within predefined tolerances
+- Monotonicity/sanity checks (e.g., higher IT load should increase `T_hot`)
+
+---
+
+## Minimal Porting Pipeline
+
+### Step 1: Prepare Configuration Files
+
+Update `normalization.yaml` and `layout_map.json` for the new site.
+
+### Step 2: Configure Airflow Mode
+
+Select `airflow_mode` and initial coefficients in `kg_rules.yaml`.
+
+### Step 3: Build & Calibrate KG
+
+```bash
 python build_kg.py --layout layout_map.json --out kg_site.json
 python calibrate_kg_rules.py --kg kg_site.json --data site_72h.parquet --out kg_site_calibrated.json
 python validate_kg.py --kg kg_site_calibrated.json --data site_24h.parquet --report kg_validation_report.json
-Step 4 (Optional) — Small-sample surrogate fine-tuning
-A short fine-tuning phase may be performed while keeping the network architecture unchanged:
+```
+
+### Step 4 (Optional): Fine-tune Surrogate
+
+Run short fine-tuning (small-sample) using the same network architecture:
+
+```bash
 python finetune_surrogate.py --ckpt pretrained.ckpt --kg kg_site_calibrated.json --data site_train.parquet --epochs 1k-5k
+```
