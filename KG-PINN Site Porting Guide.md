@@ -1,7 +1,3 @@
-
-1. Normalization Configuration
-Objective. Update feature-wise normalization parameters (min/max or mean/std) for temperature, airflow/actuation, and load variables such that the input scaling reflects the target site’s operating envelope.
-1.1 Example: normalization.yaml
 temperature:
   output_room_T_TH:      {min: 12.0, max: 45.0}   # Room temperature (26 sensors)
   output_room_T_cr:      {min: 12.0, max: 28.0}   # CRAH supply temperature (8 sensors)
@@ -147,4 +143,3 @@ python validate_kg.py --kg kg_site_calibrated.json --data site_24h.parquet --rep
 Step 4 (Optional) — Small-sample surrogate fine-tuning
 A short fine-tuning phase may be performed while keeping the network architecture unchanged:
 python finetune_surrogate.py --ckpt pretrained.ckpt --kg kg_site_calibrated.json --data site_train.parquet --epochs 1k-5k
-
