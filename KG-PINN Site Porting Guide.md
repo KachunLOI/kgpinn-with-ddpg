@@ -1,4 +1,4 @@
-KG-PINN Site Porting Guide
+
 1. Normalization Configuration
 Objective. Update feature-wise normalization parameters (min/max or mean/std) for temperature, airflow/actuation, and load variables such that the input scaling reflects the target site’s operating envelope.
 1.1 Example: normalization.yaml
@@ -142,8 +142,9 @@ Step 2 — Configure airflow mode
 ● Provide initial coefficients in kg_rules.yaml
 Step 3 — Build, calibrate, and validate the KG
 python build_kg.py --layout layout_map.json --out kg_site.json
-python calibrate_kg_rules.py --kg kg_site.json --data site_7 2h.parquet --out kg_site_calibrated.json
+python calibrate_kg_rules.py --kg kg_site.json --data site_72h.parquet --out kg_site_calibrated.json
 python validate_kg.py --kg kg_site_calibrated.json --data site_24h.parquet --report kg_validation_report.json
 Step 4 (Optional) — Small-sample surrogate fine-tuning
 A short fine-tuning phase may be performed while keeping the network architecture unchanged:
 python finetune_surrogate.py --ckpt pretrained.ckpt --kg kg_site_calibrated.json --data site_train.parquet --epochs 1k-5k
+
